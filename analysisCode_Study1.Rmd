@@ -1,0 +1,937 @@
+---
+title: "Script for populistAttitudes_2018.csv"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#install.packages("gdata")
+#install.packages("dplyr")
+#install.packages("car")
+#install.packages("psych")
+#install.packages("Hmisc")
+#install.packages("GPArotation")
+#install.packages("QuantPsyc")
+#install.packages("Rcmdr")
+#install.packages("apaTables")
+#install.packages("MBESS")
+
+library(MBESS)
+library(apaTables)
+library(dplyr)
+library(Rcmdr)
+library(gdata)
+library(car)
+library(psych)
+library(Hmisc)
+library(QuantPsyc)
+library(DescTools) 
+
+```
+
+## read in data
+```{r Daten einlesen}
+data <- read.table("dataSet_populistAttitudes_2018.csv", header = TRUE, sep =";", na.strings ="-9")
+```
+
+## Exclusion criteria
+### Consten 
+We will use only the data of participants who gave their consent.
+```{r Einverstaendniserklaerung}
+data <-data[ data$CO01 == 1, ]
+data <-data[ data$CO02 == 1, ]
+data <-data[ data$CO03 == 1, ]
+data <-data[ data$VW01 == 1, ]
+```
+### Migration Background
+We will only use data of participants with the german citizenship and without migration background.
+```{r}
+data <-data[ data$SD07 == 1, ]
+data <-data[ data$SD08 == 1, ]
+```
+
+### Completeness of items regarding populist attitudes
+We will only include participants who answered all the questions regarding populist attitudes (PopAtt12).
+```{r}
+data <-data[ is.na(data$PA04_01) == FALSE, ]
+data <-data[ is.na(data$PA04_02) == FALSE, ]
+data <-data[ is.na(data$PA04_03) == FALSE, ]
+data <-data[ is.na(data$PA04_04) == FALSE, ]
+data <-data[ is.na(data$PA04_05) == FALSE, ]
+data <-data[ is.na(data$PA04_06) == FALSE, ]
+data <-data[ is.na(data$PA04_07) == FALSE, ]
+data <-data[ is.na(data$PA04_08) == FALSE, ]
+data <-data[ is.na(data$PA04_09) == FALSE, ]
+data <-data[ is.na(data$PA04_10) == FALSE, ]
+data <-data[ is.na(data$PA04_11) == FALSE, ]
+data <-data[ is.na(data$PA04_12) == FALSE, ]
+```
+
+### Completeness Media Usage 
+We will only include participants who answered all the questions regarding media usage. 
+```{r}
+data <-data[ is.na(data$MN01_01) == FALSE, ]
+data <-data[ is.na(data$MN01_02) == FALSE, ]
+data <-data[ is.na(data$MN01_03) == FALSE, ]
+data <-data[ is.na(data$MN01_04) == FALSE, ]
+data <-data[ is.na(data$MN01_05) == FALSE, ]
+```
+
+### at this point: 
+xxx questionnaires will be used in the analysis. 
+
+# Data preparation 
+### Change variable names for easier handeling 
+```{r}
+library(gdata)
+data <- rename.vars(data, 
+                    from=c("ï..CASE"),
+                    to=c("CASE"))
+
+```
+
+###  Delete unnecessary variables 
+We wil select only the data relevant for our analysis.   
+```{r}
+data.red <- data
+data.red <- data.red[,c(1, 3:5, 16:27,55:59, 79:104)]
+
+```
+
+### Change the type  of the variables appropriately 
+(e.g. factors, characters, integers,...)
+```{r}
+# Change gender to factor
+data.red$SD01.f <- factor(data.red$SD01,
+                          levels=c(1,2,3),
+                          labels=c("maennlich", "weiblich", "sonstiges"))
+
+# Change education to factor
+data.red$SD04.f <-factor(data.red$SD04,
+                         levels=c(1,2,3,4,5,6,7,8,9),
+                         labels=c("noch in der Schule", "Schule beendet ohne Abschluss",
+                                  "Volksschulabschluss", "Mittlere Reife", "Lehre",
+                                  "Fachabi", "Abi", "Hochschulabschluss",
+                                  "anderer Abschluss"))
+
+# Change province to factor 
+data.red$SD06.f <-factor(data.red$SD06,
+                         levels=c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17),
+                         labels=c("BaWue", "Bayern", "Berlin", "Brandenburg",
+                                  "Bremen", "Hamburg", "Hessen", "MeckPom", 
+                                  "Niedersachsen", "NRW", "RLP", "Saarland",
+                                  "Sachsen", "Sachsen-Anhalt", "Schleswig-Holstein",
+                                  "Thueringen", "Ausland"))
+
+
+```
+
+### Maximum Longstring 
+Did a person chose the same answer all the time (e.g. always the 1)? We will check it here, the participant will be excluded if that is the case. 
+```{r}
+## Create the appropriate function:
+maxRun <- function(x) max(rle(x)$lengths)
+
+## Use the function for our dataset 
+data.red %>%
+  dplyr::select(PA04_01:KV09_05) %>%
+  dplyr::mutate(MaxRun = apply( ., 1, FUN=maxRun)) %>%
+  dplyr::select(MaxRun) %>%
+  data.frame(data.red, .) -> data.red.temp
+
+data.red.temp %>%
+  arrange(desc(MaxRun)) %>%
+  dplyr::select(PA04_01:KV09_05, MaxRun) %>%
+  slice(1:50)
+
+data.red.temp %>% dplyr::select(MaxRun) %>% table
+
+# No, no person has always given the same response. No participant needs to be excluded. 
+```
+
+### Participant standard deviation
+We calculate a standard deviation for every participant. If a participant shows a very low standard deviation, it is an indication for untrustworthy answers. 
+```{r}
+data.red %>%
+  dplyr::select(PA04_01:KV09_05)  %>%
+  dplyr::mutate(SD = apply( ., 1, FUN=sd, na.rm = TRUE)) %>%
+  dplyr::select(SD) %>%
+  data.frame(data.red.temp, .) -> data.red.temp
+
+data.red.temp %>%
+  arrange(desc(SD)) %>%
+  dplyr::select(PA04_01:KV09_05, SD) %>%
+  slice(1:50)
+
+data.red.temp %>% dplyr::select(SD) %>% round(.,1) %>% table %>% plot
+# all participants seem to have an unobstrusive standard deviation. 
+
+```
+
+
+## Create mean of scales that are to be used. 
+```{r}
+
+# Populism (PopAtt12)
+
+data.red$PopAtt <- rowMeans(data.red[c("PA04_01", "PA04_02", "PA04_03", "PA04_04", 
+                                       "PA04_05", "PA04_06", "PA04_07", "PA04_08", 
+                                       "PA04_09", "PA04_10", "PA04_11", "PA04_12")], 
+                            na.rm = TRUE)
+
+# Media scepticism  
+data.red$MedSkep <- rowMeans(data.red[c("KV03_01", "KV03_02","KV03_03", "KV03_04", "KV03_05")], na.rm = TRUE)
+
+# National identity
+data.red$NatId <- rowMeans(data.red[c("KV04_01", "KV04_02", "KV04_03", "KV04_04")], na.rm = TRUE)
+
+# Political Efficacy  
+data.red$Po_Eff_Ges <- rowMeans(data.red[c("KV07_01", "KV07_02", "KV07_03", "KV07_04")], na.rm = TRUE)
+```
+
+## Outlier and Winsorizing
+We will deal with outliers by using the MAD (Median Absoult Deviation) and Winsorizing. 
+```{r}
+# Change integers to numerics 
+# As numerics, decimals are possible, too. 
+
+## Medienartnutzung 
+data.red$MN01_01 <- as.numeric(data.red$MN01_01) # TV
+data.red$MN01_02 <- as.numeric(data.red$MN01_02) # Radio
+data.red$MN01_03 <- as.numeric(data.red$MN01_03) # Print newspapers
+data.red$MN01_04 <- as.numeric(data.red$MN01_04) # Online newspapers
+data.red$MN01_05 <- as.numeric(data.red$MN01_05) # social media 
+
+## Populismus nach Hameleers 
+data.red$PopAtt <- as.numeric(data.red$PopAtt) # 
+
+## Control variables  
+data.red$KV01_01 <- as.numeric(data.red$KV01_01) # Medienvertrauen
+data.red$MedSkep <- as.numeric(data.red$MedSkep) # Medienskeptizismus
+data.red$NatId <- as.numeric(data.red$NatId) # nationale Identit?t
+data.red$Po_Eff_Ges <- as.numeric(data.red$Po_Eff_Ges) # Political Efficacy
+data.red$KV09_01 <- as.numeric(data.red$KV09_01) # Vorurteile gegen?ber Gefl?chteten
+
+## Create an object for the wonsorized data. 
+data.win <- data.red
+
+###  Winsorizing
+
+## Media usage  
+# TV
+High_Bench <- median(data.red$MN01_01) + 3*mad(data.red$MN01_01)
+Low_Bench <- median(data.red$MN01_01) - 3*mad(data.red$MN01_01)
+data.win$MN01_1 <- Winsorize(data.win$MN01_01,  minval = Low_Bench, maxval = High_Bench)
+
+# Radio 
+High_Bench <- median(data.red$MN01_02) + 3*mad(data.red$MN01_02)
+Low_Bench <- median(data.red$MN01_02) - 3*mad(data.red$MN01_02)
+data.win$MN01_02 <- Winsorize(data.win$MN01_02,  minval = Low_Bench, maxval = High_Bench)
+
+# Print newspaper 
+High_Bench <- median(data.red$MN01_03) + 3*mad(data.red$MN01_03)
+Low_Bench <- median(data.red$MN01_03) - 3*mad(data.red$MN01_03)
+data.win$MN01_03 <- Winsorize(data.win$MN01_03,  minval = Low_Bench, maxval = High_Bench)
+
+# Online newspaper 
+High_Bench <- median(data.red$MN01_04) + 3*mad(data.red$MN01_04)
+Low_Bench <- median(data.red$MN01_04) - 3*mad(data.red$MN01_04)
+data.win$MN01_04 <- Winsorize(data.win$MN01_04,  minval = Low_Bench, maxval = High_Bench)
+
+# Social Medien
+High_Bench <- median(data.red$MN01_05) + 3*mad(data.red$MN01_05)
+Low_Bench <- median(data.red$MN01_05) - 3*mad(data.red$MN01_05)
+data.win$MN01_05 <- Winsorize(data.win$MN01_05,  minval = Low_Bench, maxval = High_Bench)
+
+
+## Populism
+# Populism
+High_Bench <- median(data.red$PopAtt) + 3*mad(data.red$PopAtt)
+Low_Bench <- median(data.red$PopAtt) - 3*mad(data.red$PopAtt)
+data.win$PopAtt <- Winsorize(data.win$PopAtt,  minval = Low_Bench, maxval = High_Bench)
+
+## Control Variables 
+# KV01_01
+High_Bench <- median(data.red$KV01_01) + 3*mad(data.red$KV01_01)
+Low_Bench <- median(data.red$KV01_01) - 3*mad(data.red$KV01_01)
+data.win$KV01_01 <- Winsorize(data.win$KV01_01,  minval = Low_Bench, maxval = High_Bench)
+
+# MedSkep
+High_Bench <- median(data.red$MedSkep) + 3*mad(data.red$MedSkep)
+Low_Bench <- median(data.red$MedSkep) - 3*mad(data.red$MedSkep)
+data.win$MedSkep <- Winsorize(data.win$MedSkep,  minval = Low_Bench, maxval = High_Bench)
+
+# NatId
+High_Bench <- median(data.red$NatId) + 3*mad(data.red$NatId)
+Low_Bench <- median(data.red$NatId) - 3*mad(data.red$NatId)
+data.win$NatId <- Winsorize(data.win$NatId,  minval = Low_Bench, maxval = High_Bench)
+
+# Po_Eff_Ges
+High_Bench <- median(data.red$Po_Eff_Ges) + 3*mad(data.red$Po_Eff_Ges)
+Low_Bench <- median(data.red$Po_Eff_Ges) - 3*mad(data.red$Po_Eff_Ges)
+data.win$Po_Eff_Ges <- Winsorize(data.win$Po_Eff_Ges,  minval = Low_Bench, maxval = High_Bench)
+
+# KV09_01
+High_Bench <- median(data.red$KV09_01) + 3*mad(data.red$KV09_01)
+Low_Bench <- median(data.red$KV09_01) - 3*mad(data.red$KV09_01)
+data.win$KV09_01 <- Winsorize(data.win$KV09_01,  minval = Low_Bench, maxval = High_Bench)
+
+
+#### Important ####
+# If you use the following command, you will proceed with the winsorized data. 
+# If you do not use the following command, you will use the not-wonsorized data. 
+
+# data.red <- data.win
+```
+
+## Item statistics 
+We will create a table with all the item statistics per variable. 
+```{r}
+data.red %>%
+  dplyr::select(PA04_01:KV09_05) %>%
+  psych::describe() %>%
+  dplyr::select(-c(vars,trimmed,mad,range:se)) -> Item_Describe
+
+data.red %>%
+  dplyr::select(PA04_01:KV09_05) %>%
+    apply(2, shapiro.test) -> Shapiro
+
+sapply(Shapiro, function(x) x[1]) %>% as.numeric -> Sh.Statistik
+sapply(Shapiro, function(x) x[2]) %>% as.numeric -> Sh.pWert
+
+data.frame(Item_Describe, Sh.Statistik, Sh.pWert) -> Tabelle  
+
+# In this table, you will find the median, the sd, the mean and a test for 
+# normal distribution.
+# the responses to the items are not normally distributed.  
+```
+
+## Intercorrelationmatrix
+We create an intercorrelationmatrix for all variables. 
+```{r}
+InterCorrel_subset <- data.red[, 5:38]
+
+InterCorrel <- rcorr(as.matrix(InterCorrel_subset))
+
+# We will save the matrix to a csv file. 
+write.csv(InterCorrel[[1]], "Interkorrelationsmatrix_R.csv")
+write.csv(InterCorrel[[2]], "Interkorrelationsmatrix_NumberOfN.csv")
+write.csv(InterCorrel[[3]], "Interkorrelationsmatrix_pValue.csv")
+```
+
+## Cronbachs Alpha 
+We calculate Cronbachs Alpha for all scales. 
+```{r}
+# Populism # .91
+psych::alpha(data.red[ ,5:16])
+
+# control variables  
+## Political Efficacy .68
+psych::alpha(data.red[ ,c("KV07_01","KV07_02", "KV07_03", "KV07_04")])
+
+## national identity # .88
+psych::alpha(data.red[ ,c("KV04_01", "KV04_02", "KV04_03", "KV04_04")])
+
+## Media skepticism  # .85
+psych::alpha(data.red[ ,c("KV03_01", "KV03_02", "KV03_03", "KV03_04", "KV03_05")])
+
+
+```
+
+### Description of our sample 
+```{r}
+## Gender
+table(data.red$SD01)
+# 65 male
+# 75 female
+# 3 "other"
+
+## Age
+mean(data.red$SD02_01)
+sd(data.red$SD02_01)
+
+
+## highest education
+table(data.red$SD04.f)
+prop.table(table(data.red$SD04.f))*100
+
+## German province of residence 
+# absolute frequency
+table(data.red$SD06.f)
+# relative frequency  
+prop.table(table(data.red$SD06.f))*100
+
+```
+
+### Exploratory Factor Analysis 
+#### EFA Populism
+Exploratory Factor Analysis for the 12 Populism Items (PopAtt12)
+```{r}
+
+# 1. Create a subset of the populist items 
+EFA_1 <- data.red[,5:16]
+
+# 2. We will only take into consideration those participants who answerd all relevant items. 
+EFA_1 <- na.omit(EFA_1)
+
+# 3.) Calculate the correlation matrix
+# Warning: EFA_1 is a data frame , rcorr() need a matrix.
+# Convert data frame to matrix and calculate the correlation matrix. 
+rcorr(as.matrix(EFA_1))
+
+# Create the matrix 
+Matrix_EFA_1 <- as.matrix(EFA_1)
+
+# 4.) Calculate the Kaiser-Mayer-Olkin (KMO) criterium. 
+KMO(Matrix_EFA_1)
+# The total KMO = .91; that is a good value. 
+# All individual values are above .6, thats good. 
+
+# 5.) Do the Barteltt's test of sphericity
+cortest.bartlett(Matrix_EFA_1)
+# The test is significant
+# We can assume that it is not an indentity matrix. 
+
+# 6.) Identify the facotrs
+# "fa" for principle axis factoring
+EFAparallel1 <- fa.parallel(EFA_1, fa="fa")
+
+# Print eigenvalues. 
+EFAparallel1$fa.values
+
+# Print simulated eigenvalues.
+EFAparallel1$fa.sim
+
+## Stop criterium: Parallel analysis of Horn recommends 2 factors
+
+# 7.) Fixed number of factors and rotation with 2 factors 
+# oblique rotation
+EFAoblique_1 <- fa(EFA_1, 2, fm="pa", rotate="promax")
+print(EFAoblique_1, digits =2, cut =.3, sort = TRUE)
+EFAoblique_1
+## The factor analysis pointed to 2 factors
+
+## Cronbachs alpha for two factors: 
+## Factor 1
+psych::alpha(na.omit(EFA_1[ ,c("PA04_01", "PA04_02", "PA04_03", "PA04_04", "PA04_05",
+                       "PA04_06", "PA04_07", "PA04_08")]))
+## Factor 2
+psych::alpha(na.omit(EFA_1[ ,c("PA04_09","PA04_10", "PA04_11", "PA04_12")]))
+
+```
+
+
+# Interference statistic
+### Correlation
+Check requirements:
+- Linearity of the relation
+- Normal distribution of X and Y
+
+### Linear Regression
+Check requirements:
+- Linearity of the relation based on scatterplots
+
+### Multiple Regression
+Check requirements: 
+- Multicolinearity
+- Is the model specified correctly (is the relationsship linear)?
+- Are the residuals normally distributed?
+- Homoscedacity?
+- Are there outliers? 
+
+
+## H1: Populism and Social Media 
+People with populist attitudes use more social media.
+```{r}
+### Calculation without control variables 
+
+# Scatterplot to check linearity 
+plot(data.red$MN01_05, data.red$PopAtt, main ="lowess(Pop)")
+lines(lowess(data.red$MN01_05 ~ data.red$PopAtt), col=2)
+abline(lm(data.red$MN01_05 ~ data.red$PopAtt))
+
+# Specify regression model
+mod_med_SM <- lm(scale(MN01_05) ~ scale(PopAtt) , data=data.red, na.action = na.exclude)
+summary(mod_med_SM)
+
+# calculate beta-coefficient 
+lm.beta(mod_med_SM)
+
+# create table 
+apa.reg.table(mod_med_SM, filename = "H1_ohneKV.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+```
+
+H1 with control variables 
+```{r}
+
+# 1.) step 1: create subset with all the important variables 
+Subset <- data.red[c("PopAtt", "MN01_05", "KV01_01", "MedSkep", "NatId", "Po_Eff_Ges", "KV09_01")] 
+
+# 2.) include only complete data sets
+Subset.c<- na.omit(Subset)
+
+## it was not possible to create normal distribution through transformation. 
+
+# 3.) Scale the data
+Subset.c$MN01_05.cen <- scale(Subset.c$MN01_05, scale=FALSE)
+Subset.c$PopAtt.cen <- scale(Subset.c$PopAtt, scale=FALSE)
+Subset.c$KV01_01.cen <- scale(Subset.c$KV01_01, scale=FALSE)
+Subset.c$MedSkep.cen <- scale(Subset.c$MedSkep, scale=FALSE)
+Subset.c$NatId.cen <- scale(Subset.c$NatId, scale=FALSE)
+Subset.c$Po_Eff_Ges.cen <- scale(Subset.c$Po_Eff_Ges, scale=FALSE)
+Subset.c$KV09_01.cen <- scale(Subset.c$KV09_01, scale=FALSE)
+
+
+# 4.) Specify data
+Modell <-lm(MN01_05.cen ~ MedSkep.cen + NatId.cen + Po_Eff_Ges.cen + KV09_01.cen 
+            + PopAtt.cen + KV01_01.cen , data=Subset.c)
+
+summary(Modell)
+
+# 5.) check multicolinearity 
+library(car)
+vif(Modell)
+1/vif(Modell)
+# Multikollinearit?t okay, wenn VID < 10 
+# Multikollinearit?t okay, wenn TOL > .1
+
+# 6.) Check requirements with plot.
+plot(Modell)
+
+# Deviation from normal distribution
+# therefore: use bootstrapping for the coefficients 
+
+# 7.) Create model with control variables. 
+Modell_1 <- lm(MN01_05.cen ~ PopAtt.cen, data=Subset.c) 
+Modell_2 <- lm(MN01_05.cen ~  KV01_01.cen + MedSkep.cen + NatId.cen + 
+                 Po_Eff_Ges.cen + KV09_01.cen , data=Subset.c)
+Modell_3 <-lm(MN01_05.cen ~ KV01_01.cen + MedSkep.cen + NatId.cen + 
+                Po_Eff_Ges.cen + KV09_01.cen + PopAtt.cen, data=Subset.c)
+
+summary(Modell_1)
+summary(Modell_2)
+summary(Modell_3)
+
+# Calculate increment in R and F-deviation
+summary(Modell_3)$r.squared - summary(Modell_2)$r.squared
+anova(Modell_2, Modell_3)
+
+# Calculate beta-Koefficients for model 
+lm.beta(Modell_2)
+lm.beta(Modell_3)
+
+# create output table:
+apa.reg.table(Modell_1, filename = "H1_Step1__Pr?d_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+apa.reg.table(Modell_2, filename = "H1_Step1_KV_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+apa.reg.table(Modell_3, filename = "H1_Step2_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+
+#### results ####
+# if you control for variables, the p-value is = .055
+# it is just not significant anymore
+```
+
+### H1b Populism and TV - usage
+```{r}
+### without control variables 
+
+# Scatterplot TV
+plot(data.red$MN01_01, data.red$PopAtt, main ="lowess(Pop)")
+lines(lowess(data.red$MN01_01 ~ data.red$PopAtt), col=2)
+abline(lm(data.red$MN01_01 ~ data.red$PopAtt))
+
+# Regression
+Modell <- lm(scale(MN01_01) ~ scale(PopAtt) , data=data.red, na.action = na.exclude)
+summary(Modell)
+lm.beta(Modell)
+
+# Create table
+apa.reg.table(Modell, filename = "H1_TV_oKV.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+
+## significatn correlation! 
+```
+
+H1b with control variables 
+```{r}
+
+### With control variables 
+options(scipen=999)
+#1. Step 1: Create a subset 
+Subset <- data.red[c("PopAtt", "MN01_01", "KV01_01", "MedSkep", "NatId", "Po_Eff_Ges", "KV09_01")] 
+
+# 2.) Delete people who have missing values 
+Subset.c<- na.omit(Subset)
+
+## it was not possible to create normal distribution through transformation. 
+
+# 3.) Scale
+Subset.c$MN01_01.cen <- scale(Subset.c$MN01_01, scale=FALSE)
+Subset.c$PopAtt.cen <- scale(Subset.c$PopAtt, scale=FALSE)
+Subset.c$KV01_01.cen <- scale(Subset.c$KV01_01, scale=FALSE)
+Subset.c$MedSkep.cen <- scale(Subset.c$MedSkep, scale=FALSE)
+Subset.c$NatId.cen <- scale(Subset.c$NatId, scale=FALSE)
+Subset.c$Po_Eff_Ges.cen <- scale(Subset.c$Po_Eff_Ges, scale=FALSE)
+Subset.c$KV09_01.cen <- scale(Subset.c$KV09_01, scale=FALSE)
+
+
+# 4.) Specify model 
+Modell <-lm(MN01_01.cen ~ MedSkep.cen + NatId.cen + Po_Eff_Ges.cen + KV09_01.cen + PopAtt.cen + KV01_01.cen , data=Subset.c)
+summary(Modell)
+
+# 5.) Multicolinearity 
+library(car)
+vif(Modell)
+1/vif(Modell)
+# multiconlineraity ok if  VID < 10 
+# Multicolinearity ok if TOL > .1
+
+# 6.) Plot
+plot(Modell)
+
+## The plots do not look good
+# Deviation from normal distribution 
+# Therefore: Bootstrapping 
+
+# 7.) Normal calculation of the increment of R  
+
+summary(Modell)
+
+# 8.) Control Variables 
+Modell_1 <- lm(MN01_01.cen ~ PopAtt.cen, data=Subset.c) 
+Modell_2 <- lm(MN01_01.cen ~  KV01_01.cen + MedSkep.cen + NatId.cen + 
+                 Po_Eff_Ges.cen + KV09_01.cen , data=Subset.c)
+Modell_3 <-lm(MN01_01.cen ~ KV01_01.cen + MedSkep.cen + NatId.cen + 
+                Po_Eff_Ges.cen + KV09_01.cen + PopAtt.cen, data=Subset.c)
+
+summary(Modell_1)
+summary(Modell_2)
+summary(Modell_3)
+
+
+summary(Modell_3)$r.squared - summary(Modell_2)$r.squared
+anova(Modell_2, Modell_3)
+
+lm.beta(Modell_2)
+lm.beta(Modell_3)
+## H1b with control variables: The patterns is the same, still significant 
+
+# Create output tables 
+apa.reg.table(Modell_1, filename = "H1b_Step1__Pred_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+apa.reg.table(Modell_2, filename = "H1b_Step1_KV_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+apa.reg.table(Modell_3, filename = "H1b_Step2_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+
+## significant correlation with and without controlling for variables 
+```
+### bis hier hin ###
+### H1c Populismus und Radio-Nutzung
+```{r}
+### Without control variables 
+
+# Improvement of linearity: Square root transformation
+data.red$MN01_02.t <- sqrt(data.red$MN01_02)
+
+# Scatterplot Radio
+plot(data.red$MN01_02.t, data.red$PopAtt, main ="lowess(Pop)")
+lines(lowess(data.red$MN01_02.t ~ data.red$PopAtt), col=2)
+abline(lm(data.red$MN01_02.t ~ data.red$PopAtt))
+
+options(scipen=999)
+# Regression
+Modell <- lm(scale(MN01_02.t) ~ scale(PopAtt) , data=data.red, na.action = na.exclude)
+summary(Modell)
+lm.beta(Modell)
+
+# Create table with output 
+apa.reg.table(Modell, filename = "H1_Radio_oKV.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+
+## not significant, linearity is restricted 
+
+```
+
+H1c Populist Attitudes ~ Radio while controling for variables 
+```{r}
+### With control variables 
+options(scipen=999)
+
+# 1.) Step: Create subset 
+Subset <- data.red[c("PopAtt", "MN01_02.t", "KV01_01", "MedSkep", "NatId", "Po_Eff_Ges", "KV09_01")] 
+
+# 2.) Delete people who have missing values 
+Subset.c<- na.omit(Subset)
+
+## it was not possible to create normal distribution through transformation. 
+
+# 3.) Scale
+Subset.c$MN01_02.t.cen <- scale(Subset.c$MN01_02.t, scale=FALSE)
+Subset.c$PopAtt.cen <- scale(Subset.c$PopAtt, scale=FALSE)
+Subset.c$KV01_01.cen <- scale(Subset.c$KV01_01, scale=FALSE)
+Subset.c$MedSkep.cen <- scale(Subset.c$MedSkep, scale=FALSE)
+Subset.c$NatId.cen <- scale(Subset.c$NatId, scale=FALSE)
+Subset.c$Po_Eff_Ges.cen <- scale(Subset.c$Po_Eff_Ges, scale=FALSE)
+Subset.c$KV09_01.cen <- scale(Subset.c$KV09_01, scale=FALSE)
+
+
+# 4.) Specify Model
+Modell <-lm(MN01_02.t.cen ~ MedSkep.cen + NatId.cen + Po_Eff_Ges.cen + KV09_01.cen + PopAtt.cen + KV01_01.cen , data=Subset.c)
+summary(Modell)
+
+# 5.) Multicolinearity 
+library(car)
+vif(Modell)
+1/vif(Modell)
+# Multicolinearity okay, if VID < 10 
+# Multicolinearity okay, if TOL > .1
+
+# 6.) Plot
+plot(Modell)
+
+# Plot shows no normal distribution
+# therefore: Bootstrapping or transformation of the data 
+
+# 7.) Normal calculation of increment in R
+
+summary(Modell)
+
+# 8.) Control variables 
+Modell_1 <- lm(MN01_02.t.cen ~ PopAtt.cen, data=Subset.c) 
+Modell_2 <- lm(MN01_02.t.cen ~  KV01_01.cen + MedSkep.cen + NatId.cen + 
+                 Po_Eff_Ges.cen + KV09_01.cen , data=Subset.c)
+Modell_3 <-lm(MN01_02.t.cen ~ KV01_01.cen + MedSkep.cen + NatId.cen + 
+                Po_Eff_Ges.cen + KV09_01.cen + PopAtt.cen, data=Subset.c)
+
+summary(Modell_1)
+summary(Modell_2)
+summary(Modell_3)
+
+
+summary(Modell_3)$r.squared - summary(Modell_2)$r.squared
+anova(Modell_2, Modell_3)
+
+lm.beta(Modell_2)
+lm.beta(Modell_3)
+## H1 with control variables: Pattern stays the same
+
+# Create table with output:
+apa.reg.table(Modell_1, filename = "H1c_Step1__Pred_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+apa.reg.table(Modell_2, filename = "H1c_Step1_KV_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+apa.reg.table(Modell_3, filename = "H1c_Step2_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+
+## With and without control variables not significant 
+## With and without Wonsorizing not significant 
+```
+
+### H1d Populism and online newspapers 
+```{r}
+### Without control variables 
+data.red$MN01_04.t<- sqrt(data.red$MN01_04)
+
+# Scatterplot online-newspapers
+plot(data.red$MN01_04.t, data.red$PopAtt, main ="lowess(Pop)")
+lines(lowess(data.red$MN01_04.t ~ data.red$PopAtt), col=2)
+abline(lm(data.red$MN01_04.t ~ data.red$PopAtt))
+
+options(scipen=999)
+# Regression
+Modell <- lm(scale(MN01_04.t) ~ scale(PopAtt) , data=data.red, na.action = na.exclude)
+summary(Modell)
+lm.beta(Modell)
+
+# Table 
+apa.reg.table(Modell, filename = "H1d_OZ_oKV.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+
+## not significant
+## With and without winsorizing not significant  
+```
+
+H1d while controling for variables 
+```{r}
+### With control variables 
+options(scipen=999)
+
+#1.  Step: Create subset 
+Subset <- data.red[c("PopAtt", "MN01_04.t", "KV01_01", "MedSkep", "NatId", "Po_Eff_Ges", "KV09_01")] 
+
+# 2.) Delete people who have missing values 
+Subset.c<- na.omit(Subset)
+
+## it was not possible to create normal distribution through transformation. 
+
+# 3.) Scale 
+Subset.c$MN01_04.t.cen <- scale(Subset.c$MN01_04.t, scale=FALSE)
+Subset.c$PopAtt.cen <- scale(Subset.c$PopAtt, scale=FALSE)
+Subset.c$KV01_01.cen <- scale(Subset.c$KV01_01, scale=FALSE)
+Subset.c$MedSkep.cen <- scale(Subset.c$MedSkep, scale=FALSE)
+Subset.c$NatId.cen <- scale(Subset.c$NatId, scale=FALSE)
+Subset.c$Po_Eff_Ges.cen <- scale(Subset.c$Po_Eff_Ges, scale=FALSE)
+Subset.c$KV09_01.cen <- scale(Subset.c$KV09_01, scale=FALSE)
+
+
+# 4.) Specify Model
+Modell <-lm(MN01_04.t.cen ~ MedSkep.cen + NatId.cen + Po_Eff_Ges.cen + KV09_01.cen + PopAtt.cen + KV01_01.cen , data=Subset.c)
+summary(Modell)
+
+# 5.) Multicolinearity
+library(car)
+vif(Modell)
+1/vif(Modell)
+# Multicolinearity okay, if VID < 10 
+# Multicolinearity okay, if TOL > .1
+
+# 6.) Plot
+plot(Modell)
+
+
+# no normal distribution
+# therefore: Bootstrapping or transformation of data
+
+# 7.) Normal calculation of increment in R
+
+summary(Modell)
+
+# 8.) Control Variable 
+Modell_1 <- lm(MN01_04.t.cen ~ PopAtt.cen, data=Subset.c) 
+Modell_2 <- lm(MN01_04.t.cen ~  KV01_01.cen + MedSkep.cen + NatId.cen + 
+                 Po_Eff_Ges.cen + KV09_01.cen , data=Subset.c)
+Modell_3 <-lm(MN01_04.t.cen ~ KV01_01.cen + MedSkep.cen + NatId.cen + 
+                Po_Eff_Ges.cen + KV09_01.cen + PopAtt.cen, data=Subset.c)
+
+summary(Modell_1)
+summary(Modell_2)
+summary(Modell_3)
+
+
+summary(Modell_3)$r.squared - summary(Modell_2)$r.squared
+anova(Modell_2, Modell_3)
+
+lm.beta(Modell_2)
+lm.beta(Modell_3)
+## H1d with control variables: Pattern stays the same
+
+# Print output in tables 
+apa.reg.table(Modell_1, filename = "H1d_Step1__Pred_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+apa.reg.table(Modell_2, filename = "H1d_Step1_KV_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+apa.reg.table(Modell_3, filename = "H1d_Step2_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+
+## not significant
+## with and without wonsorizing
+```
+
+
+### H1e Populism and print newspapers 
+```{r}
+# lineraity is restricted, transform data 
+data.red$MN01_03.t <- sqrt(data.red$MN01_03)
+
+# Scatterplot
+plot(data.red$MN01_03.t, data.red$PopAtt, main ="lowess(Pop)")
+lines(lowess(data.red$MN01_03.t ~ data.red$PopAtt), col=2)
+abline(lm(data.red$MN01_03.t ~ data.red$PopAtt))
+
+options(scipen=999)
+# Regression
+Modell <- lm(scale(MN01_03.t) ~ scale(PopAtt) , data=data.red, na.action = na.exclude)
+summary(Modell)
+lm.beta(Modell)
+
+# Create table with output 
+apa.reg.table(Modell, filename = "H1e_Z_oKV.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+
+## Significant after transformation
+## stays significant when controlling for variables 
+```
+
+H1e unter Kontrolle der St?rvariablen  
+```{r}
+### Control Variables 
+options(scipen=999)
+
+#1.  Step: Create subset 
+Subset <- data.red[c("PopAtt", "MN01_03.t", "KV01_01", "MedSkep", "NatId", "Po_Eff_Ges", "KV09_01")] 
+
+# 2.) Delete people who have missing values 
+Subset.c<- na.omit(Subset)
+
+## it was not possible to create normal distribution through transformation. 
+
+# 3.) Scale
+Subset.c$MN01_03.t.cen <- scale(Subset.c$MN01_03.t, scale=FALSE)
+Subset.c$PopAtt.cen <- scale(Subset.c$PopAtt, scale=FALSE)
+Subset.c$KV01_01.cen <- scale(Subset.c$KV01_01, scale=FALSE)
+Subset.c$MedSkep.cen <- scale(Subset.c$MedSkep, scale=FALSE)
+Subset.c$NatId.cen <- scale(Subset.c$NatId, scale=FALSE)
+Subset.c$Po_Eff_Ges.cen <- scale(Subset.c$Po_Eff_Ges, scale=FALSE)
+Subset.c$KV09_01.cen <- scale(Subset.c$KV09_01, scale=FALSE)
+
+
+# 4.) Specify Model
+Modell <-lm(MN01_03.t.cen ~ MedSkep.cen + NatId.cen + Po_Eff_Ges.cen + KV09_01.cen + PopAtt.cen + KV01_01.cen , data=Subset.c)
+summary(Modell)
+
+# 5.) Multicolinearity
+library(car)
+vif(Modell)
+1/vif(Modell)
+# Multicolinearity okay, if VID < 10 
+# Multicolinearity okay, if TOL > .1
+
+# 6.) Plot
+plot(Modell)
+
+## no normal distribution
+# Therefore: Bootstrapping or transformaion
+
+# 7.) normal calculation of the increment in R 
+
+summary(Modell)
+
+# 8.) Control Variables 
+Modell_1 <- lm(MN01_03.t.cen ~ PopAtt.cen, data=Subset.c) 
+Modell_2 <- lm(MN01_03.t.cen ~  KV01_01.cen + MedSkep.cen + NatId.cen + 
+                 Po_Eff_Ges.cen + KV09_01.cen , data=Subset.c)
+Modell_3 <-lm(MN01_03.t.cen ~ KV01_01.cen + MedSkep.cen + NatId.cen + 
+                Po_Eff_Ges.cen + KV09_01.cen + PopAtt.cen, data=Subset.c)
+
+summary(Modell_1)
+summary(Modell_2)
+summary(Modell_3)
+
+
+summary(Modell_3)$r.squared - summary(Modell_2)$r.squared
+anova(Modell_2, Modell_3)
+
+lm.beta(Modell_2)
+lm.beta(Modell_3)
+## H1e with control variables: PAtters stays the same 
+
+# Print output to table
+apa.reg.table(Modell_1, filename = "H1e_Step1__Pred_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+apa.reg.table(Modell_2, filename = "H1e_Step1_KV_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+apa.reg.table(Modell_3, filename = "H1e_Step2_results.doc", table.number = 1,
+prop.var.conf.level = 0.95)
+
+## While controling for variables, the relationship between populism and print newspapers stays significant.
+```
+
+
+
+
+
+
+
